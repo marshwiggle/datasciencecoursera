@@ -1,0 +1,177 @@
+```{r global_options, echo=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='figures/',
+                      echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+# Introduction
+
+It is now possible to collect a large amount of data about personal movement using activity monitoring devices such as a Fitbit, Nike Fuelband, or Jawbone Up. These type of devices are part of the “quantified self” movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. But these data remain under-utilized both because the raw data are hard to obtain and there is a lack of statistical methods and software for processing and interpreting the data.
+
+The variables included in this dataset are:
+
+- steps: Number of steps taking in a 5-minute interval (missing values are coded as NA)
+- date: The date on which the measurement was taken in YYYY-MM-DD format
+- interval: Identifier for the 5-minute interval in which measurement was taken
+
+The dataset is stored in a comma-separated-value (CSV) file and there are a total of 17,568 observations in this dataset.
+
+# Loading and preprocessing the data
+
+First, lets load our data
+```{r load_data, echo=TRUE}
+activity = read.csv("activity.csv")
+```
+
+and see its summary
+```{r str_data, echo=TRUE}
+str(activity)
+```
+We see, that the second column has factor type. That is not what we need, so let's transform its type to date.
+```{r factor_to_date, echo=TRUE}
+activity$date <- as.Date(activity$date)
+```
+Let's check, that our transformation has effect:
+```{r chacking_factor_to_date_coercion, echo=TRUE}
+str(activity)
+```
+
+Now let's see, what columns have NAs:
+```{r detect_columns_with_na, echo=TRUE}
+sum(is.na(activity$steps))
+sum(is.na(activity$date))
+sum(is.na(activity$interval))
+```
+So, only **steps** column has NA values.
+
+We will also need **dplyr** library, so let' load it:
+```{r load_dplyr, echo=TRUE}
+library("dplyr")
+```
+
+# What is mean total number of steps taken per day?
+
+First, we will group **activity** table by days
+```{r activity_grouped_by_days, echo=TRUE}
+days <- group_by(activity, date)
+```
+and then calculate total number of steps, that were made each day (removing NA values)
+```{r total_number_of_steps, echo=TRUE}
+total_steps <- summarise(days, steps=sum(steps, na.rm=TRUE))
+head(total_steps)
+```
+
+Now we will make a histogram:
+```{r total_number_of_steps_hist, echo=TRUE}
+hist(total_steps$steps, col="green", breaks=30, xlab="Steps", main="Total number of steps")
+```
+
+
+The mean number of steps is:
+```{r mean_number_of_steps, echo=TRUE}
+mean(total_steps$steps)
+```
+
+The median number:
+```{r median_number_of_steps, echo=TRUE}
+median(total_steps$steps)
+```
+
+# What is the average daily activity pattern?
+
+Let's group our data by five-minute intervals
+```{r group_by_intervals, echo=TRUE}
+intervals <- group_by(activity, interval)
+```
+and the calculate average number of steps in each interval:
+```{r average_number_of_steps, echo=TRUE}
+average_steps_num <- summarise(intervals, avg=mean(steps, na.rm=TRUE))
+```
+
+```{r average_number_of_steps_plot, echo=TRUE}
+with(average_steps_num, 
+     plot(avg, type="l", col="red", lwd=3, xlab="interval", ylab="steps", main="Average # of steps by interval"))
+```
+
+The interval, that contains average maximum is:
+```{r average_max_interval, echo=TRUE}
+which.max(average_steps_num$avg)
+```
+
+# Imputing missing values
+
+The number of missing values is:
+```{r na_number, echo=TRUE}
+sum(is.na(activity$steps))
+```
+
+We will replace missing values with the mean of other values in the same interval:
+```{r imputing_values, echo=TRUE}
+average_steps_num$avg <- round(average_steps_num$avg)
+imputed <- merge(activity, average_steps_num, by.x = "interval", by.y="interval")
+imputed <- arrange(imputed, date)
+imputed$steps <- ifelse(is.na(imputed$steps), imputed$avg, imputed$steps)
+```
+
+Grouping by days:
+```{r activity_grouped_by_days_imputed, echo=TRUE}
+days_imputed <- group_by(imputed, date)
+```
+and then calculate total number of steps, that were made each day (removing NA values)
+```{r total_number_of_steps_imputed, echo=TRUE}
+total_steps_imputed <- summarise(days_imputed, steps=sum(steps, na.rm=TRUE))
+head(total_steps_imputed)
+```
+Now we will make a histogram:
+```{r total_number_of_steps_hist_imputed, echo=TRUE}
+hist(total_steps_imputed$steps, col="green", breaks=30, xlab="Steps", main="Total number of steps")
+```
+
+
+The mean number of steps is:
+```{r mean_number_of_steps_imputed, echo=TRUE}
+mean(total_steps_imputed$steps)
+```
+
+The median number:
+```{r median_number_of_steps_imputed, echo=TRUE}
+median(total_steps_imputed$steps)
+```
+
+# Are there differences in activity patterns between weekdays and weekends?
+
+We will add a factor column:
+```{r creating_factor_column, echo=TRUE}
+imputed$wday <- ifelse(weekdays(imputed$date)=='Суббота' | weekdays(imputed$date)=='Воскресенье', 
+                       'Weekend', "Workday")
+imputed$wday <- as.factor(imputed$wday)
+```
+
+Let's see if it works:
+```{r factor_column_testing, echo=TRUE}
+head(imputed)
+```
+
+Now we will get average number of steps for each interval of a workday:
+```{r select_workdays, echo=TRUE}
+workdays <- filter(imputed, wday=='Workday')  %>% 
+            group_by(interval) %>% summarise( avg=mean(steps), wday='Workday')
+```
+
+...and of a weekend
+
+```{r select_weekends, echo=TRUE}
+weekends <- filter(imputed, wday=='Weekend') %>% 
+            group_by(interval) %>% summarise( avg=mean(steps), wday='Weekend')
+```
+
+```{r merge_workdays_and_weekends, echo=TRUE}
+by_day_type <- rbind(workdays, weekends)
+by_day_type$wday <- as.factor(by_day_type$wday)
+head(by_day_type)
+```
+
+
+```{r average_number_of_steps_plot_by_wday, echo=TRUE}
+     library(lattice)
+     xyplot(avg ~ interval | wday, data=by_day_type, layout=c(1,2), type="l")
+```
